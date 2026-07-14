@@ -1,0 +1,138 @@
+version: '3.8'
+
+services:
+  # Base de Datos Relacional (PostgreSQL)
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: cosmética-postgres
+    environment:
+      POSTGRES_USER: tienda_user
+      POSTGRES_PASSWORD: tienda_secure_password
+      POSTGRES_DB: tienda_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - network-ecosistema
+
+  # Base de Datos NoSQL (MongoDB)
+  mongo-db:
+    image: mongo:6.0
+    container_name: cosmética-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin_secure_password
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - network-ecosistema
+
+  # 1. Microservicio de Autenticación
+  auth-service:
+    build: ./auth-service
+    container_name: ms-auth
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: 8081
+      DATABASE_URL: postgres://tienda_user:tienda_secure_password@postgres-db:5432/tienda_db
+    depends_on:
+      - postgres-db
+    networks:
+      - network-ecosistema
+
+  # 2. Microservicio de Productos (Catálogo)
+  products-service:
+    build: ./products-service
+    container_name: ms-productos
+    ports:
+      - "8082:8082"
+    environment:
+      PORT: 8082
+      MONGO_URI: mongodb://admin:admin_secure_password@mongo-db:27017/catalogo?authSource=admin
+    depends_on:
+      - mongo-db
+    networks:
+      - network-ecosistema
+
+  # 3. Microservicio de Marketing (Promociones)
+  marketing-service:
+    build: ./marketing-service
+    container_name: ms-marketing
+    ports:
+      - "8083:8083"
+    environment:
+      PORT: 8083
+    networks:
+      - network-ecosistema
+
+  # 4. Microservicio de Ventas (Órdenes)
+  sales-service:
+    build: ./sales-service
+    container_name: ms-ventas
+    ports:
+      - "8084:8084"
+    environment:
+      PORT: 8084
+      DATABASE_URL: postgres://tienda_user:tienda_secure_password@postgres-db:5432/tienda_db
+    depends_on:
+      - postgres-db
+    networks:
+      - network-ecosistema
+
+  # 5. Microservicio de Configuración (Panel Visual/Temas)
+  config-service:
+    build: ./config-service
+    container_name: ms-config
+    ports:
+      - "8085:8085"
+    environment:
+      PORT: 8085
+    networks:
+      - network-ecosistema
+
+  # Backend For Frontend (BFF) en Spring Boot
+  bff-service:
+    build: ./bff
+    container_name: bff-spring
+    ports:
+      - "8089:8089"
+    environment:
+      BFF_PORT: 8089
+      AUTH_SERVICE_HOST: auth-service
+      PRODUCTS_SERVICE_HOST: products-service
+      MARKETING_SERVICE_HOST: marketing-service
+      SALES_SERVICE_HOST: sales-service
+      CONFIG_SERVICE_HOST: config-service
+    depends_on:
+      - auth-service
+      - products-service
+      - marketing-service
+      - sales-service
+      - config-service
+    networks:
+      - network-ecosistema
+
+  # Frontend (Next.js)
+  frontend-tienda:
+    build: ./frontend
+    container_name: nextjs-tienda
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_GATEWAY_URL: http://localhost:8089
+    depends_on:
+      - bff-service
+    networks:
+      - network-ecosistema
+
+volumes:
+  postgres_data:
+  mongo_data:
+
+networks:
+  network-ecosistema:
+    driver: bridge
